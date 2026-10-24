@@ -52,3 +52,7 @@ test-results/
 
 # Nx Cache
 .nx/
+
+temp/
+
+

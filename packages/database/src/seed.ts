@@ -1,10 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
-import { userRepository } from './repositories/UserRepository'
+import { pool } from './connection'
 import { gasolineLiveStockRepository } from './repositories/GasolineLiveStockRepository'
 import { gasolineRecapRepository } from './repositories/GasolineRecapRepository'
 import { gasolineShiftTransactionRepository } from './repositories/GasolineShiftTransactionRepository'
 import { salaryPaymentRepository } from './repositories/SalaryPaymentRepository'
-import { pool } from './connection'
+import { userRepository } from './repositories/UserRepository'
 
 async function main() {
 	const name = process.env.SEED_ADMIN_NAME || 'ali musthafa kamal'
@@ -257,7 +257,7 @@ async function main() {
 	// 6. Seed Salary Payments (gasoline.salary_payments)
 	console.log('🔄 Seeding salary payments in gasoline.salary_payments table...')
 	const existingSalaries = await salaryPaymentRepository.findAllSalaries()
-	if (existingSalaries.length === 0) {
+	if (existingSalaries.data.length === 0) {
 		await salaryPaymentRepository.createSalary({
 			date: '2026-08-07',
 			weekLabel: 'Minggu ke-1 Agustus 2026',
