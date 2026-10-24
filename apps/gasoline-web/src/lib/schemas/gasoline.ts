@@ -35,6 +35,18 @@ export const closingStockSchema = z.object({
 
 export type ClosingStockFormData = z.infer<typeof closingStockSchema>
 
+export const jerigenAdjustmentSchema = z.object({
+	actualLiters: z
+		.string()
+		.transform(val => parseFloat(val.replace(',', '.')) || 0)
+		.refine(val => val >= 0 && val <= 50, {
+			message: 'Stok jerigen harus antara 0 sampai 50 Liter',
+		}),
+	reason: z.string().min(3, 'Alasan penyesuaian wajib diisi (minimal 3 karakter)'),
+})
+
+export type JerigenAdjustmentFormData = z.infer<typeof jerigenAdjustmentSchema>
+
 export const purchaseSchema = z.object({
 	liters: z
 		.string()

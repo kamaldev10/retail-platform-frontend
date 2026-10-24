@@ -235,15 +235,26 @@ CREATE INDEX IF NOT EXISTS idx_gasoline_finances_shift_id ON gasoline.finances(s
 - [x] Perbarui `SalaryPaymentRepository.ts` agar otomatis update `cash_out` dan `salary_expenses` di shift aktif jika dibayar via `CASH_DRAWER`.
 - [x] Export `GasolineShiftRepository` di `packages/database/src/index.ts`.
 
-### Fase 4: Integrasi Frontend & API (`apps/gasoline-web`) (Status: On Going)
+### Fase 4: Integrasi Frontend & API (`apps/gasoline-web`) (Status: Done)
 
-- [ ] Buat API endpoints terpadu `/api/shift` (GET active, POST open/close, POST purchase/pour/expense).
-- [ ] Perbarui Zustand `shiftSlice.ts` dan `catalogSlice.ts` membaca dari endpoint shift terpadu.
-- [ ] Tambahkan opsi sumber dana (`payment_source`) pada form gaji di `salary/page.tsx`.
-- [ ] Tambahkan field snapshot sisa jerigen saat closing shift di `shift/page.tsx`.
-- [ ] Tampilkan informasi stok hari ini vs stok kemarin secara otomatis.
+- [x] Integrasikan API endpoints terpadu `/api/shift/active` dan `/api/shift/transactions` dengan `GasolineShiftRepository`.
+- [x] Perbarui Zustand `shiftSlice.ts`, `salarySlice.ts`, dan store types agar terhubung dengan shift lifecycle terpadu.
+- [x] Tambahkan opsi sumber dana (`payment_source`: Kas Laci Toko, Transfer Bank Toko, Kantong Pemilik) pada form gaji di `salary/page.tsx`.
+- [x] Tambahkan field snapshot fisik sisa jerigen saat closing shift di `shift/page.tsx`.
+- [x] Tampilkan informasi stok hari ini vs stok kemarin secara otomatis (auto-fill dari `latest_closed_shift`).
 
-### Fase 5: Pengujian & Validasi (Status: Todo)
+### Fase 5: Pengujian & Validasi (Status: Done)
 
-- [ ] Jalankan `npx tsc --noEmit` untuk verifikasi nol error TypeScript.
-- [ ] Verifikasi konsistensi data hitungan kas dan stok jerigen/botol.
+- [x] Jalankan `npm run build:gasoline` dan `npx tsc --noEmit` untuk verifikasi nol error TypeScript (13/13 static pages generated).
+- [x] Format kode menggunakan `npx prettier --write .`.
+- [x] Verifikasi konsistensi data hitungan kas dan stok jerigen/botol pada database Staging & Production.
+
+### Fase 6: Pembersihan Tabel Usang (Status: Ready for UAT)
+
+- [ ] Jalankan UAT aplikasi retail fuel bersama pengguna / operator toko.
+- [ ] Setelah verifikasi operasional stabil, buat dan eksekusi file migrasi `202610250010_drop_deprecated_tables.sql` untuk menghapus tabel usang:
+  - `gasoline.active_shift`
+  - `gasoline.live_stock`
+  - `gasoline.product_recaps`
+  - `gasoline.recaps`
+  - `gasoline.shift_transactions`

@@ -4,8 +4,6 @@ import { formatFloatComma, formatRupiah } from '@/lib/CurrencyFormatter'
 import { useGasolineStore } from '@/store/useGasolineStore'
 import {
 	ArrowUpRight,
-	Check,
-	Edit2,
 	FileText,
 	Fuel,
 	HelpCircle,
@@ -17,7 +15,6 @@ import {
 	ShoppingCart,
 	TrendingUp,
 	Users,
-	X,
 	Zap,
 } from 'lucide-react'
 import Link from 'next/link'
@@ -64,12 +61,8 @@ export default function DashboardPage() {
 		fetchStockFromCloud,
 		fetchProductsFromCloud,
 		fetchActiveShift,
-		updateJerigenStock,
 	} = useGasolineStore()
 
-	const [isEditingJerigen, setIsEditingJerigen] = useState(false)
-	const [jerigenDraft, setJerigenDraft] = useState('')
-	const [isSavingJerigen, setIsSavingJerigen] = useState(false)
 	const [isLoadingData, setIsLoadingData] = useState(true)
 
 	useEffect(() => {
@@ -98,36 +91,6 @@ export default function DashboardPage() {
 	const totalRevenue = dailyRecaps.reduce((acc, curr) => acc + curr.totalRevenue, 0)
 	const totalProfit = dailyRecaps.reduce((acc, curr) => acc + curr.totalNetProfit, 0)
 	const dateNow = new Date().toLocaleDateString('id-ID')
-
-	const startEditJerigen = () => {
-		setJerigenDraft(String(jerigenStock))
-		setIsEditingJerigen(true)
-	}
-
-	const cancelEditJerigen = () => {
-		setIsEditingJerigen(false)
-		setJerigenDraft('')
-	}
-
-	const saveJerigen = async () => {
-		const next = parseFloat(jerigenDraft.replace(',', '.'))
-		if (isNaN(next) || next < 0 || next > 50) {
-			toast.error('Stok jerigen harus antara 0 sampai 50L.')
-			return
-		}
-
-		setIsSavingJerigen(true)
-		const result = await updateJerigenStock(next)
-		setIsSavingJerigen(false)
-
-		if (!result.success) {
-			toast.error(result.message || 'Gagal menyimpan stok jerigen.')
-			return
-		}
-
-		toast.success('Stok jerigen berhasil diperbarui.')
-		setIsEditingJerigen(false)
-	}
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -285,75 +248,25 @@ export default function DashboardPage() {
 					<h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
 						Stok Tangki Cadangan (Jerigen)
 					</h3>
-					{!isEditingJerigen ? (
-						<button
-							type="button"
-							onClick={startEditJerigen}
-							className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 px-2 py-1 rounded-md transition-colors"
-							aria-label="Edit stok jerigen"
-						>
-							<Edit2 className="w-3 h-3" /> Edit
-						</button>
-					) : (
-						<div className="flex items-center gap-1">
-							<button
-								type="button"
-								onClick={saveJerigen}
-								disabled={isSavingJerigen}
-								className="inline-flex items-center gap-1 text-[10px] font-bold text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 px-2 py-1 rounded-md"
-								aria-label="Simpan stok jerigen"
-							>
-								{isSavingJerigen ? (
-									<Loader2 className="w-3 h-3 animate-spin" />
-								) : (
-									<Check className="w-3 h-3" />
-								)}
-								Simpan
-							</button>
-							<button
-								type="button"
-								onClick={cancelEditJerigen}
-								disabled={isSavingJerigen}
-								className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 px-2 py-1 rounded-md"
-								aria-label="Batal edit jerigen"
-							>
-								<X className="w-3 h-3" />
-							</button>
-						</div>
-					)}
+					<Link
+						href="/shift"
+						className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 px-2 py-1 rounded-md transition-colors"
+						aria-label="Kelola stok jerigen di shift"
+					>
+						Kelola di Shift <ArrowUpRight className="w-3 h-3" />
+					</Link>
 				</div>
 
-				{isEditingJerigen ? (
-					<div className="flex flex-col gap-1.5 mb-2">
-						<label htmlFor="home-jerigen-qty" className="text-[10px] font-bold text-gray-500">
-							Jumlah liter (0–50)
-						</label>
-						<div className="relative w-36">
-							<input
-								id="home-jerigen-qty"
-								type="text"
-								inputMode="decimal"
-								value={jerigenDraft}
-								onChange={e => setJerigenDraft(e.target.value)}
-								aria-invalid={false}
-								disabled={isSavingJerigen}
-								className="w-full px-3 py-1.5 border border-orange-300 rounded-md text-sm font-semibold focus:ring-2 focus:ring-orange-500 text-center disabled:opacity-50"
-							/>
-							<span className="absolute right-3 top-2 text-[10px] text-gray-400 font-bold">L</span>
-						</div>
-					</div>
-				) : (
-					<div className="flex items-center justify-between mb-1">
-						<span className="text-2xl font-black text-gray-900">{jerigenStock.toFixed(1)} L</span>
-						<span className="text-xs text-gray-400 font-semibold">Kapasitas Maks: 50.0 L</span>
-					</div>
-				)}
+				<div className="flex items-center justify-between mb-1">
+					<span className="text-2xl font-black text-gray-900">{jerigenStock.toFixed(1)} L</span>
+					<span className="text-xs text-gray-400 font-semibold">Kapasitas Maks: 50.0 L</span>
+				</div>
 
 				<div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
 					<div
 						className="bg-orange-500 h-full rounded-full transition-all duration-500"
 						style={{
-							width: `${Math.min(100, ((isEditingJerigen ? parseFloat(jerigenDraft) || 0 : jerigenStock) / 50) * 100)}%`,
+							width: `${Math.min(100, (jerigenStock / 50) * 100)}%`,
 						}}
 					/>
 				</div>

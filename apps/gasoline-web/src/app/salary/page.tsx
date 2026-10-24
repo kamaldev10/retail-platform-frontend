@@ -49,6 +49,7 @@ export default function SalaryPage() {
 			weekLabel: '',
 			amount: 0,
 			recipient: '',
+			paymentSource: 'CASH_DRAWER',
 			note: '',
 		},
 	})
@@ -62,6 +63,7 @@ export default function SalaryPage() {
 			weekLabel: data.weekLabel || undefined,
 			amount: data.amount,
 			recipient: data.recipient || undefined,
+			paymentSource: data.paymentSource,
 			note: data.note || undefined,
 		})
 
@@ -79,6 +81,7 @@ export default function SalaryPage() {
 				weekLabel: '',
 				amount: 0,
 				recipient: '',
+				paymentSource: 'CASH_DRAWER',
 				note: '',
 			})
 		} else {
@@ -228,6 +231,26 @@ export default function SalaryPage() {
 								{...register('recipient')}
 								className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-orange-500"
 							/>
+						</div>
+
+						<div className="flex flex-col gap-1">
+							<label
+								htmlFor="salary-source"
+								className="text-xs font-bold text-slate-700 flex items-center gap-1"
+							>
+								<Wallet className="w-3.5 h-3.5 text-slate-400" /> Sumber Kas Pengeluaran
+							</label>
+							<select
+								id="salary-source"
+								{...register('paymentSource')}
+								className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-orange-500 bg-white"
+							>
+								<option value="CASH_DRAWER">Kas Laci Kasir (Potong Kas Shift Berjalan)</option>
+								<option value="EXTERNAL_TRANSFER">
+									Transfer Bank Pemilik (Tidak Potong Kasir)
+								</option>
+								<option value="OWNER_POCKET">Uang Pribadi Pemilik (Tidak Potong Kasir)</option>
+							</select>
 						</div>
 
 						<div className="flex flex-col gap-1">

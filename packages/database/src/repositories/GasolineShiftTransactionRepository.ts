@@ -22,17 +22,17 @@ export const gasolineShiftTransactionRepository = {
              ORDER BY created_at ASC`,
 			[shiftDate],
 		)
-		return res.rows.map((r: any) => ({
-			id: r.id,
-			shift_date: r.shift_date,
-			transaction_date: r.transaction_date,
+		return res.rows.map((r: Record<string, unknown>) => ({
+			id: r.id as string,
+			shift_date: r.shift_date as string,
+			transaction_date: r.transaction_date as string,
 			type: r.type as 'purchase' | 'pour',
-			product_id: r.product_id,
+			product_id: r.product_id as string | undefined,
 			liters: r.liters ? Number(r.liters) : undefined,
 			quantity: r.quantity ? Number(r.quantity) : undefined,
 			cost: Number(r.cost),
-			note: r.note,
-			created_at: r.created_at,
+			note: r.note as string | undefined,
+			created_at: r.created_at ? String(r.created_at) : undefined,
 		}))
 	},
 
@@ -54,6 +54,33 @@ export const gasolineShiftTransactionRepository = {
 		)
 		const r = res.rows[0]
 		return { ...r, cost: Number(r.cost) }
+	},
+
+	async findById(id: string): Promise<ShiftTransactionRow | null> {
+		const res = await query(
+			`SELECT id, shift_date, transaction_date, type, product_id, liters, quantity, cost, note, created_at
+             FROM gasoline.shift_transactions
+             WHERE id = $1`,
+			[id],
+		)
+		if (res.rows.length === 0) return null
+		const r = res.rows[0]
+		return {
+			id: r.id,
+			shift_date: r.shift_date,
+			transaction_date: r.transaction_date,
+			type: r.type as 'purchase' | 'pour',
+			product_id: r.product_id,
+			liters: r.liters ? Number(r.liters) : undefined,
+			quantity: r.quantity ? Number(r.quantity) : undefined,
+			cost: Number(r.cost),
+			note: r.note,
+			created_at: r.created_at,
+		}
+	},
+
+	async deleteById(id: string): Promise<void> {
+		await query(`DELETE FROM gasoline.shift_transactions WHERE id = $1`, [id])
 	},
 
 	async deleteByShiftDate(shiftDate: string): Promise<void> {

@@ -31,7 +31,14 @@ export interface ShiftExpenseRow {
 export interface ShiftInventoryLogRow {
 	id?: string
 	shift_id?: string
-	action_type: 'PURCHASE_JERIGEN' | 'PURCHASE_BOTTLE' | 'POUR_TO_BOTTLE' | 'LOSS_ADJUSTMENT'
+	action_type:
+		| 'PURCHASE_JERIGEN'
+		| 'PURCHASE_BOTTLE'
+		| 'POUR_TO_BOTTLE'
+		| 'LOSS_ADJUSTMENT'
+		| 'STOCK_ADJUSTMENT'
+		| 'VOID_PURCHASE'
+		| 'VOID_POUR'
 	product_id?: string
 	liters: number
 	bottles_qty: number
@@ -717,5 +724,199 @@ export const gasolineShiftRepository = {
 				hasPrevPage: validPage > 1,
 			},
 		}
+	},
+
+	async voidTransaction(
+		shiftId: string,
+		tx: {
+			id?: string
+			type: 'purchase' | 'pour'
+			product_id?: string
+			liters?: number
+			quantity?: number
+			cost: number
+			note?: string
+		},
+	): Promise<void> {
+		return await transaction(async client => {
+			const liters = Number(tx.liters || tx.quantity || 0)
+			const qty = Number(tx.quantity || 0)
+			const cost = Number(tx.cost || 0)
+
+			if (tx.type === 'purchase') {
+				const isJerigen = !tx.product_id || tx.product_id === 'jerigen'
+				if (isJerigen) {
+					await client.query(
+						`UPDATE gasoline.shifts
+                         SET purchased_jerigen = GREATEST(0, purchased_jerigen - $1),
+                             current_jerigen = GREATEST(0, current_jerigen - $1),
+                             total_cash_out = GREATEST(0, total_cash_out - $2),
+                             fuel_purchase_cost = GREATEST(0, fuel_purchase_cost - $2),
+                             updated_at = NOW()
+                         WHERE id = $3`,
+						[liters, cost, shiftId],
+					)
+					await client.query(
+						`UPDATE gasoline.live_stock
+                         SET quantity = GREATEST(0, quantity - $1), updated_at = NOW()
+                         WHERE product_id = '__jerigen__'`,
+						[liters],
+					)
+				} else {
+					await client.query(
+						`UPDATE gasoline.shift_product_items
+                         SET pushed_qty = GREATEST(0, pushed_qty - $1),
+                             current_qty = GREATEST(0, current_qty - $1),
+                             updated_at = NOW()
+                         WHERE shift_id = $2 AND product_id = $3`,
+						[qty, shiftId, tx.product_id],
+					)
+					await client.query(
+						`UPDATE gasoline.shifts
+                         SET total_cash_out = GREATEST(0, total_cash_out - $1),
+                             fuel_purchase_cost = GREATEST(0, fuel_purchase_cost - $1),
+                             updated_at = NOW()
+                         WHERE id = $2`,
+						[cost, shiftId],
+					)
+					await client.query(
+						`UPDATE gasoline.live_stock
+                         SET quantity = GREATEST(0, quantity - $1), updated_at = NOW()
+                         WHERE product_id = $2`,
+						[qty, tx.product_id],
+					)
+				}
+
+				if (cost > 0) {
+					await client.query(
+						`DELETE FROM gasoline.shift_expenses
+                         WHERE id = (
+                             SELECT id FROM gasoline.shift_expenses
+                             WHERE shift_id = $1 AND category = 'FUEL_PURCHASE' AND amount = $2
+                             ORDER BY created_at DESC LIMIT 1
+                         )`,
+						[shiftId, cost],
+					)
+					await client.query(
+						`DELETE FROM gasoline.finances
+                         WHERE id = (
+                             SELECT id FROM gasoline.finances
+                             WHERE shift_id = $1 AND category = 'FUEL_PURCHASE' AND amount = $2
+                             ORDER BY created_at DESC LIMIT 1
+                         )`,
+						[shiftId, cost],
+					)
+				}
+
+				await client.query(
+					`INSERT INTO gasoline.shift_inventory_logs (
+                        shift_id, action_type, product_id, liters, bottles_qty, cost, note
+                    ) VALUES ($1, 'VOID_PURCHASE', $2, $3, $4, $5, $6)`,
+					[
+						shiftId,
+						tx.product_id || null,
+						liters,
+						qty,
+						cost,
+						`Batalkan pembelian: ${tx.note || tx.id || ''}`,
+					],
+				)
+			} else if (tx.type === 'pour') {
+				await client.query(
+					`UPDATE gasoline.shifts
+                     SET poured_jerigen = GREATEST(0, poured_jerigen - $1),
+                         current_jerigen = current_jerigen + $1,
+                         updated_at = NOW()
+                     WHERE id = $2`,
+					[liters, shiftId],
+				)
+				await client.query(
+					`UPDATE gasoline.live_stock
+                     SET quantity = quantity + $1, updated_at = NOW()
+                     WHERE product_id = '__jerigen__'`,
+					[liters],
+				)
+				if (tx.product_id) {
+					await client.query(
+						`UPDATE gasoline.shift_product_items
+                         SET pushed_qty = GREATEST(0, pushed_qty - $1),
+                             current_qty = GREATEST(0, current_qty - $1),
+                             updated_at = NOW()
+                         WHERE shift_id = $2 AND product_id = $3`,
+						[qty, shiftId, tx.product_id],
+					)
+					await client.query(
+						`UPDATE gasoline.live_stock
+                         SET quantity = GREATEST(0, quantity - $1), updated_at = NOW()
+                         WHERE product_id = $2`,
+						[qty, tx.product_id],
+					)
+				}
+
+				await client.query(
+					`INSERT INTO gasoline.shift_inventory_logs (
+                        shift_id, action_type, product_id, liters, bottles_qty, cost, note
+                    ) VALUES ($1, 'VOID_POUR', $2, $3, $4, 0.00, $5)`,
+					[
+						shiftId,
+						tx.product_id || null,
+						liters,
+						qty,
+						`Batalkan tuang botol: ${tx.note || tx.id || ''}`,
+					],
+				)
+			}
+		})
+	},
+
+	async adjustJerigenStock(
+		shiftId: string | null,
+		actualLiters: number,
+		reason: string,
+	): Promise<{ previous: number; current: number; difference: number }> {
+		return await transaction(async client => {
+			let currentJerigen = 0
+			if (shiftId) {
+				const shiftRes = await client.query(
+					`SELECT current_jerigen FROM gasoline.shifts WHERE id = $1`,
+					[shiftId],
+				)
+				if (shiftRes.rows.length > 0) {
+					currentJerigen = Number(shiftRes.rows[0].current_jerigen)
+				}
+			} else {
+				const stockRes = await client.query(
+					`SELECT quantity FROM gasoline.live_stock WHERE product_id = '__jerigen__'`,
+				)
+				currentJerigen = Number(stockRes.rows[0]?.quantity || 0)
+			}
+
+			const difference = actualLiters - currentJerigen
+
+			if (shiftId) {
+				await client.query(
+					`UPDATE gasoline.shifts
+                     SET current_jerigen = $1, updated_at = NOW()
+                     WHERE id = $2`,
+					[actualLiters, shiftId],
+				)
+
+				await client.query(
+					`INSERT INTO gasoline.shift_inventory_logs (
+                        shift_id, action_type, product_id, liters, bottles_qty, cost, note
+                    ) VALUES ($1, 'STOCK_ADJUSTMENT', null, $2, 0.000, 0.00, $3)`,
+					[shiftId, difference, reason || 'Penyesuaian stok jerigen fisik'],
+				)
+			}
+
+			await client.query(
+				`INSERT INTO gasoline.live_stock (product_id, quantity, updated_at)
+                 VALUES ('__jerigen__', $1, NOW())
+                 ON CONFLICT (product_id) DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = NOW()`,
+				[actualLiters],
+			)
+
+			return { previous: currentJerigen, current: actualLiters, difference }
+		})
 	},
 }

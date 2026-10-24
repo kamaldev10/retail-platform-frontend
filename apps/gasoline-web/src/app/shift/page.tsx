@@ -9,10 +9,12 @@ import {
 	OpeningStockFormData,
 	PourFormData,
 	PurchaseFormData,
+	JerigenAdjustmentFormData,
 	closingStockSchema,
 	openingStockSchema,
 	pourSchema,
 	purchaseSchema,
+	jerigenAdjustmentSchema,
 } from '@/lib/schemas/gasoline'
 import { useGasolineStore } from '@/store/useGasolineStore'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -23,11 +25,14 @@ import {
 	Check,
 	DollarSign,
 	Edit2,
+	Fuel,
 	Loader2,
 	Moon,
 	Receipt,
 	ShoppingCart,
+	Sliders,
 	Sun,
+	Trash2,
 	TrendingUp,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -41,11 +46,13 @@ export default function ShiftPage() {
 		products,
 		jerigenStock,
 		bottleStock,
+		latestClosedShift,
 		activeOpeningStock,
 		activePushedBottles,
 		activeDate,
 		activeCashIn,
 		activeCashOut,
+		shiftTransactions,
 		setOpeningStock,
 		submitPurchase,
 		pourFuelToBottles,
@@ -53,12 +60,15 @@ export default function ShiftPage() {
 		fetchActiveShift,
 		fetchStockFromCloud,
 		fetchProductsFromCloud,
+		voidShiftTransaction,
+		adjustJerigenStockWithReason,
 	} = useGasolineStore()
 
-	const [activeTab, setActiveTab] = useState<'shift' | 'purchase' | 'pour'>('shift')
+	const [activeTab, setActiveTab] = useState<'shift' | 'purchase' | 'pour' | 'adjust'>('shift')
 	const [refillError, setRefillError] = useState<string | null>(null)
 	const [pourError, setPourError] = useState<string | null>(null)
 	const [isSubmitting, setIsSubmitting] = useState(false)
+	const [isVoidingId, setIsVoidingId] = useState<string | null>(null)
 	const [showSuccess, setShowSuccess] = useState(false)
 
 	useEffect(() => {
@@ -94,13 +104,14 @@ export default function ShiftPage() {
 			uangAwal: '0',
 			openingStocks: products.reduce(
 				(acc, p) => {
-					acc[p.id] = String(bottleStock[p.id] || 0)
+					const val = latestClosedShift?.closing_bottles?.[p.id] ?? bottleStock[p.id] ?? 0
+					acc[p.id] = String(val)
 					return acc
 				},
 				{} as Record<string, string>,
 			) as unknown as Record<string, number>,
 		} as unknown as OpeningStockFormData)
-	}, [products, bottleStock, resetOpen])
+	}, [products, bottleStock, latestClosedShift, resetOpen])
 
 	// 2. Form Stok Akhir (Malam)
 	const {
@@ -123,6 +134,27 @@ export default function ShiftPage() {
 			) as unknown as Record<string, number>,
 		} as unknown as ClosingStockFormData,
 	})
+
+	// 3. Form Penyesuaian Stok Jerigen (Opname Fisik Beralasan)
+	const {
+		register: registerAdjust,
+		handleSubmit: handleSubmitAdjust,
+		reset: resetAdjust,
+		formState: { errors: errorsAdjust },
+	} = useForm<JerigenAdjustmentFormData>({
+		resolver: zodResolver(jerigenAdjustmentSchema),
+		defaultValues: {
+			actualLiters: String(jerigenStock || 0),
+			reason: '',
+		} as unknown as JerigenAdjustmentFormData,
+	})
+
+	useEffect(() => {
+		resetAdjust({
+			actualLiters: String(jerigenStock || 0),
+			reason: '',
+		} as unknown as JerigenAdjustmentFormData)
+	}, [jerigenStock, resetAdjust])
 
 	// 3. Form Pembelian Bensin
 	const {
@@ -267,6 +299,30 @@ export default function ShiftPage() {
 		toast.success('Laporan Shift Malam berhasil disimpan!')
 	}
 
+	const onSubmitAdjust = async (data: JerigenAdjustmentFormData) => {
+		setIsSubmitting(true)
+		const res = await adjustJerigenStockWithReason(data.actualLiters, data.reason)
+		setIsSubmitting(false)
+		if (!res.success) {
+			toast.error(res.message || 'Gagal menyesuaikan stok jerigen')
+			return
+		}
+		toast.success('Stok jerigen berhasil disesuaikan dan dicatat ke log audit.')
+		setActiveTab('shift')
+	}
+
+	const handleVoidTransaction = async (id?: string) => {
+		if (!id) return
+		setIsVoidingId(id)
+		const res = await voidShiftTransaction(id)
+		setIsVoidingId(null)
+		if (!res.success) {
+			toast.error(res.message || 'Gagal membatalkan transaksi')
+			return
+		}
+		toast.success('Transaksi berhasil dibatalkan. Stok dan kas laci dikembalikan.')
+	}
+
 	const onSubmitPurchase = (data: PurchaseFormData) => {
 		setRefillError(null)
 		const res = submitPurchase(data.liters, data.cost, data.target, data.transactionDate)
@@ -294,44 +350,57 @@ export default function ShiftPage() {
 	return (
 		<div className="flex flex-col gap-4 pb-8">
 			{/* Tab Navigation Header (Navigasi Modul Shift) */}
-			<div className="grid grid-cols-3 gap-1 bg-slate-200/70 p-1 rounded-xl border border-slate-200">
+			<div className="grid grid-cols-4 gap-1 bg-slate-200/70 p-1 rounded-xl border border-slate-200">
 				<button
 					type="button"
 					onClick={() => setActiveTab('shift')}
-					className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-bold transition-all ${
+					className={`flex items-center justify-center gap-1 py-2 px-1 rounded-lg text-xs font-bold transition-all ${
 						activeTab === 'shift'
 							? 'bg-white text-orange-600 shadow-sm'
 							: 'text-slate-600 hover:text-slate-900'
 					}`}
 				>
 					<Receipt className="w-3.5 h-3.5" />
-					<span>Shift Kasir</span>
+					<span>Shift</span>
 				</button>
 
 				<button
 					type="button"
 					onClick={() => setActiveTab('purchase')}
-					className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-bold transition-all ${
+					className={`flex items-center justify-center gap-1 py-2 px-1 rounded-lg text-xs font-bold transition-all ${
 						activeTab === 'purchase'
 							? 'bg-white text-orange-600 shadow-sm'
 							: 'text-slate-600 hover:text-slate-900'
 					}`}
 				>
 					<ShoppingCart className="w-3.5 h-3.5" />
-					<span>Belanja Bensin</span>
+					<span>Belanja</span>
 				</button>
 
 				<button
 					type="button"
 					onClick={() => setActiveTab('pour')}
-					className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-bold transition-all ${
+					className={`flex items-center justify-center gap-1 py-2 px-1 rounded-lg text-xs font-bold transition-all ${
 						activeTab === 'pour'
 							? 'bg-white text-orange-600 shadow-sm'
 							: 'text-slate-600 hover:text-slate-900'
 					}`}
 				>
 					<ArrowRightLeft className="w-3.5 h-3.5" />
-					<span>Tuang Botol</span>
+					<span>Tuang</span>
+				</button>
+
+				<button
+					type="button"
+					onClick={() => setActiveTab('adjust')}
+					className={`flex items-center justify-center gap-1 py-2 px-1 rounded-lg text-xs font-bold transition-all ${
+						activeTab === 'adjust'
+							? 'bg-white text-orange-600 shadow-sm'
+							: 'text-slate-600 hover:text-slate-900'
+					}`}
+				>
+					<Sliders className="w-3.5 h-3.5" />
+					<span>Koreksi</span>
 				</button>
 			</div>
 
@@ -427,10 +496,35 @@ export default function ShiftPage() {
 										)}
 									</div>
 
+									<div className="flex flex-col gap-1.5 p-3 rounded-xl bg-amber-50/70 border border-amber-200">
+										<div className="flex justify-between items-center">
+											<span className="text-xs font-bold text-slate-800 flex items-center gap-1">
+												<Fuel className="w-3.5 h-3.5 text-amber-600" /> Stok Bensin Jerigen Awal
+											</span>
+											<Badge
+												variant="outline"
+												className="text-xs font-mono font-bold text-amber-900 border-amber-300 bg-white"
+											>
+												{jerigenStock.toFixed(1)} Liter
+											</Badge>
+										</div>
+										<p className="text-[10px] text-slate-500">
+											Otomatis dari sistem (saldo berjalan). Jika fisik berbeda, gunakan menu
+											Koreksi.
+										</p>
+									</div>
+
 									<div className="flex flex-col gap-2.5 pt-2 border-t border-slate-100">
-										<span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-											Stok Botol Siap Jual di Rak (Awal Shift)
-										</span>
+										<div className="flex justify-between items-center">
+											<span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+												Stok Botol Siap Jual di Rak (Awal Shift)
+											</span>
+											{latestClosedShift && (
+												<span className="text-[9px] text-emerald-600 font-medium bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+													Auto-fill dari shift {latestClosedShift.shift_date}
+												</span>
+											)}
+										</div>
 										{products.map(p => (
 											<div
 												key={p.id}
@@ -480,6 +574,12 @@ export default function ShiftPage() {
 											<span>Uang Awal Kasir:</span>
 											<span className="font-bold text-slate-900">{formatRupiah(activeCashIn)}</span>
 										</div>
+										<div className="flex justify-between text-xs text-slate-600">
+											<span>Stok Jerigen Saat Ini:</span>
+											<span className="font-bold text-amber-700">
+												{jerigenStock.toFixed(1)} Liter
+											</span>
+										</div>
 										<div className="grid grid-cols-3 gap-1 pt-1">
 											{products.map(p => (
 												<div
@@ -495,6 +595,82 @@ export default function ShiftPage() {
 												</div>
 											))}
 										</div>
+									</div>
+
+									{/* Riwayat Transaksi Shift Berjalan & Tombol Batalkan (Void) */}
+									<div className="flex flex-col gap-2 bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+										<div className="flex justify-between items-center">
+											<span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+												<Receipt className="w-3.5 h-3.5 text-orange-500" />
+												Riwayat Transaksi Shift Ini ({shiftTransactions?.length || 0})
+											</span>
+											<span className="text-[10px] text-slate-400">Batalkan jika salah catat</span>
+										</div>
+
+										{!shiftTransactions || shiftTransactions.length === 0 ? (
+											<div className="py-3 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg">
+												Belum ada transaksi belanja atau tuang di shift ini.
+											</div>
+										) : (
+											<div className="flex flex-col gap-1.5 divide-y divide-slate-100 max-h-56 overflow-y-auto">
+												{shiftTransactions.map(tx => {
+													const isPurchase = tx.type === 'purchase'
+													const targetProduct = tx.product_id
+														? products.find(p => p.id === tx.product_id)
+														: null
+													const title = isPurchase
+														? `Belanja Bensin ${targetProduct ? targetProduct.name : 'ke Jerigen'}`
+														: `Tuang ke ${targetProduct ? targetProduct.name : 'Botol'}`
+													const detail = isPurchase
+														? `${tx.liters ?? 0} L • ${formatRupiah(tx.cost || 0)}`
+														: `${tx.quantity ?? 0} Botol (${((tx.quantity ?? 0) * (targetProduct?.volume ?? 1)).toFixed(1)} L)`
+
+													return (
+														<div
+															key={tx.id || `${tx.type}-${tx.transaction_date}`}
+															className="pt-2 first:pt-0 flex justify-between items-center text-xs"
+														>
+															<div className="flex flex-col">
+																<div className="flex items-center gap-1.5">
+																	<span
+																		className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+																			isPurchase
+																				? 'bg-rose-50 text-rose-700 border border-rose-200'
+																				: 'bg-blue-50 text-blue-700 border border-blue-200'
+																		}`}
+																	>
+																		{isPurchase ? 'BELANJA' : 'TUANG'}
+																	</span>
+																	<span className="font-semibold text-slate-800">{title}</span>
+																</div>
+																<span className="text-[10px] text-slate-500 font-medium">
+																	{detail}
+																</span>
+															</div>
+
+															{tx.id && (
+																<Button
+																	type="button"
+																	variant="ghost"
+																	size="sm"
+																	disabled={isVoidingId === tx.id}
+																	onClick={() => handleVoidTransaction(tx.id)}
+																	className="h-7 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+																	title="Batalkan transaksi ini"
+																>
+																	{isVoidingId === tx.id ? (
+																		<Loader2 className="w-3.5 h-3.5 animate-spin" />
+																	) : (
+																		<Trash2 className="w-3.5 h-3.5" />
+																	)}
+																	<span className="text-[10px] ml-1 font-bold">Batal</span>
+																</Button>
+															)}
+														</div>
+													)
+												})}
+											</div>
+										)}
 									</div>
 
 									<form onSubmit={handleSubmitClose(onSubmitClose)} className="flex flex-col gap-4">
@@ -879,6 +1055,88 @@ export default function ShiftPage() {
 
 							<Button type="submit" variant="orange" size="lg" className="w-full mt-2">
 								Proses Pengemasan Botol
+							</Button>
+						</form>
+					</CardContent>
+				</Card>
+			)}
+
+			{/* TAB 4: KOREKSI / PENYESUAIAN STOK JERIGEN */}
+			{activeTab === 'adjust' && (
+				<Card>
+					<CardHeader>
+						<CardTitle className="flex items-center gap-1.5 text-slate-900">
+							<Sliders className="w-4 h-4 text-orange-500" />
+							<span>Penyesuaian Stok Jerigen (Opname Fisik)</span>
+						</CardTitle>
+						<CardDescription>
+							Sesuaikan angka stok jerigen sistem jika terjadi selisih dengan fisik asli. Setiap
+							penyesuaian wajib menyertakan alasan dan akan tercatat permanen dalam log audit.
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						<div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 flex justify-between items-center">
+							<span className="text-xs font-bold text-slate-700">
+								Stok Jerigen Sistem Saat Ini:
+							</span>
+							<Badge variant="orange" className="text-xs font-extrabold font-mono">
+								{jerigenStock.toFixed(1)} Liter
+							</Badge>
+						</div>
+
+						<form onSubmit={handleSubmitAdjust(onSubmitAdjust)} className="flex flex-col gap-4">
+							<div className="flex flex-col gap-1.5">
+								<label htmlFor="adjust-liters" className="text-xs font-bold text-slate-700">
+									Stok Fisik Sebenarnya di Jerigen (Liter, Maks 50L) *
+								</label>
+								<input
+									id="adjust-liters"
+									type="text"
+									inputMode="decimal"
+									{...registerAdjust('actualLiters')}
+									className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-orange-500"
+									placeholder={`Contoh: ${jerigenStock.toFixed(1)}`}
+								/>
+								{errorsAdjust.actualLiters && (
+									<span className="text-[10px] text-red-500 font-semibold">
+										{errorsAdjust.actualLiters.message}
+									</span>
+								)}
+							</div>
+
+							<div className="flex flex-col gap-1.5">
+								<label htmlFor="adjust-reason" className="text-xs font-bold text-slate-700">
+									Alasan Koreksi / Penyesuaian Stok *
+								</label>
+								<textarea
+									id="adjust-reason"
+									rows={3}
+									{...registerAdjust('reason')}
+									className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-orange-500"
+									placeholder="Contoh: Penguapan bensin, tumpah saat penuangan, atau salah catat belanja."
+								/>
+								{errorsAdjust.reason && (
+									<span className="text-[10px] text-red-500 font-semibold">
+										{errorsAdjust.reason.message}
+									</span>
+								)}
+							</div>
+
+							<Button
+								type="submit"
+								variant="orange"
+								size="lg"
+								disabled={isSubmitting}
+								className="w-full mt-2"
+							>
+								{isSubmitting ? (
+									<>
+										<Loader2 className="w-4 h-4 animate-spin mr-2" />
+										<span>Menyimpan Koreksi...</span>
+									</>
+								) : (
+									'Simpan & Catat Audit Log'
+								)}
 							</Button>
 						</form>
 					</CardContent>
