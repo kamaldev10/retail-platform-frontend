@@ -29,10 +29,7 @@ export function SWRegistration() {
 						const installingWorker = registration.installing
 						if (!installingWorker) return
 						installingWorker.onstatechange = () => {
-							if (
-								installingWorker.state === 'installed' &&
-								navigator.serviceWorker.controller
-							) {
+							if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
 								console.log('[PWA] New content available; please refresh.')
 							}
 						}
