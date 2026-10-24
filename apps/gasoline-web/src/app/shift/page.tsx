@@ -71,6 +71,8 @@ export default function ShiftPage() {
 	const [isVoidingId, setIsVoidingId] = useState<string | null>(null)
 	const [showSuccess, setShowSuccess] = useState(false)
 
+	const today = new Date().toISOString().split('T')[0]
+
 	useEffect(() => {
 		fetchActiveShift()
 		fetchStockFromCloud()
@@ -170,6 +172,7 @@ export default function ShiftPage() {
 			liters: '',
 			cost: '',
 			target: 'jerigen',
+			transactionDate: today,
 		} as unknown as PurchaseFormData,
 	})
 
@@ -184,6 +187,7 @@ export default function ShiftPage() {
 		defaultValues: {
 			bottleId: products[0]?.id || 'p1',
 			quantity: '',
+			transactionDate: today,
 		} as unknown as PourFormData,
 	})
 
@@ -325,25 +329,36 @@ export default function ShiftPage() {
 
 	const onSubmitPurchase = (data: PurchaseFormData) => {
 		setRefillError(null)
-		const res = submitPurchase(data.liters, data.cost, data.target, data.transactionDate)
+		const txDate = data.transactionDate || activeDate || today
+		const res = submitPurchase(data.liters, data.cost, data.target, txDate)
 		if (!res.success) {
 			setRefillError(res.message || 'Gagal menambahkan pembelian')
 			toast.error(res.message || 'Gagal menambahkan pembelian')
 		} else {
 			toast.success('Pembelian bensin berhasil ditambahkan')
-			resetPurchase()
+			resetPurchase({
+				liters: '',
+				cost: '',
+				target: 'jerigen',
+				transactionDate: activeDate || today,
+			} as unknown as PurchaseFormData)
 		}
 	}
 
 	const onSubmitPour = (data: PourFormData) => {
 		setPourError(null)
-		const res = pourFuelToBottles(data.bottleId, data.quantity, data.transactionDate)
+		const txDate = data.transactionDate || activeDate || today
+		const res = pourFuelToBottles(data.bottleId, data.quantity, txDate)
 		if (!res.success) {
 			setPourError(res.message || 'Gagal menuangkan bensin')
 			toast.error(res.message || 'Gagal menuangkan bensin')
 		} else {
 			toast.success('Pengemasan botol bensin berhasil')
-			resetPour()
+			resetPour({
+				bottleId: products[0]?.id || 'p1',
+				quantity: '',
+				transactionDate: activeDate || today,
+			} as unknown as PourFormData)
 		}
 	}
 

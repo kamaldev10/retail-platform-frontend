@@ -73,7 +73,9 @@ export async function POST(request: NextRequest) {
 		const body = await request.json()
 
 		// Legacy table sync
-		await gasolineActiveShiftRepository.upsert(body).catch(() => {})
+		await gasolineActiveShiftRepository.upsert(body).catch(err => {
+			console.error('[POST /api/shift/active] legacy active_shift upsert error:', err)
+		})
 
 		// Unified shifts table sync
 		if (body.active_date && body.opening_stocks) {
@@ -90,7 +92,9 @@ export async function POST(request: NextRequest) {
 							body.opening_jerigen !== undefined ? Number(body.opening_jerigen) : jerigenQty,
 						opening_bottles: body.opening_stocks as Record<string, number>,
 					})
-					.catch(() => {})
+					.catch(err => {
+						console.error('[POST /api/shift/active] unified shifts openShift error:', err)
+					})
 			}
 		}
 

@@ -250,7 +250,7 @@ export const gasolineShiftRepository = {
 			const shiftId = shiftRes.rows[0].id
 
 			const productsRes = await client.query(
-				`SELECT id, volume, selling_price, cost_price FROM gasoline.products WHERE is_active = true`,
+				`SELECT id, volume, selling_price, cost_price FROM gasoline.products ORDER BY created_at ASC, id ASC`,
 			)
 
 			const items: ShiftProductItemRow[] = []

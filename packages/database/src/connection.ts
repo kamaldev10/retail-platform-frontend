@@ -22,7 +22,7 @@ function createPool(connStr: string): Pool {
 		connectionString: connStr,
 		max: isServerless ? 3 : 10,
 		idleTimeoutMillis: 30000,
-		connectionTimeoutMillis: 5000,
+		connectionTimeoutMillis: 15000,
 		ssl:
 			connStr.includes('supabase') ||
 			process.env.NODE_ENV === 'production' ||

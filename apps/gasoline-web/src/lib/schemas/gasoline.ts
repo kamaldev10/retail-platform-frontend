@@ -60,7 +60,7 @@ export const purchaseSchema = z.object({
 	transactionDate: z
 		.string()
 		.optional()
-		.default(() => new Date().toISOString().split('T')[0]),
+		.transform(val => (val && val.trim() ? val : new Date().toISOString().split('T')[0])),
 })
 
 export type PurchaseFormData = z.infer<typeof purchaseSchema>
@@ -74,7 +74,7 @@ export const pourSchema = z.object({
 	transactionDate: z
 		.string()
 		.optional()
-		.default(() => new Date().toISOString().split('T')[0]),
+		.transform(val => (val && val.trim() ? val : new Date().toISOString().split('T')[0])),
 })
 
 export type PourFormData = z.infer<typeof pourSchema>

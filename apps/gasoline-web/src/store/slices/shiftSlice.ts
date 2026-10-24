@@ -125,12 +125,15 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			}),
 		}).catch(() => {})
 
+		const txDate =
+			transactionDate || updatedState.activeDate || new Date().toISOString().split('T')[0]
+
 		fetch('/api/shift/transactions', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				shift_date: updatedState.activeDate,
-				transaction_date: transactionDate || new Date().toISOString().split('T')[0],
+				shift_date: updatedState.activeDate || txDate,
+				transaction_date: txDate,
 				type: 'purchase',
 				product_id: target === 'jerigen' ? null : target,
 				liters: calculatedLiters,
@@ -196,12 +199,15 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			}),
 		}).catch(() => {})
 
+		const txDate =
+			transactionDate || updatedState.activeDate || new Date().toISOString().split('T')[0]
+
 		fetch('/api/shift/transactions', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				shift_date: updatedState.activeDate,
-				transaction_date: transactionDate || new Date().toISOString().split('T')[0],
+				shift_date: updatedState.activeDate || txDate,
+				transaction_date: txDate,
 				type: 'pour',
 				product_id: bottleId,
 				quantity,
@@ -417,11 +423,18 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			if (!data) return { success: true } // no active shift
 
 			if (data.latest_closed_shift) {
-				set({
-					latestClosedShift: data.latest_closed_shift,
-					activeDate: '',
-					activeOpeningStock: null,
-				})
+				const hasCurrentActive = Boolean(get().activeOpeningStock)
+				if (!hasCurrentActive) {
+					set({
+						latestClosedShift: data.latest_closed_shift,
+						activeDate: '',
+						activeOpeningStock: null,
+					})
+				} else {
+					set({
+						latestClosedShift: data.latest_closed_shift,
+					})
+				}
 				return { success: true }
 			}
 

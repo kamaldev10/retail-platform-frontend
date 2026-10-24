@@ -28,9 +28,14 @@ export async function POST(request: NextRequest) {
 			return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 		}
 		const body = await request.json()
+		const txDate = body.transaction_date || new Date().toISOString().split('T')[0]
+		const payload = {
+			...body,
+			transaction_date: txDate,
+		}
 
 		// 1. Insert into legacy shift_transactions table
-		const tx = await gasolineShiftTransactionRepository.insert(body)
+		const tx = await gasolineShiftTransactionRepository.insert(payload)
 
 		// 2. Sync to unified gasoline.shifts, inventory logs & expenses
 		const activeShift = await gasolineShiftRepository.findActiveShift()
