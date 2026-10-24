@@ -229,17 +229,17 @@ CREATE INDEX IF NOT EXISTS idx_gasoline_finances_shift_id ON gasoline.finances(s
 - [x] Tulis script SQL data migration idempoten dari tabel lama ke tabel baru.
 - [x] Tambahkan foreign keys, check constraints, dan B-tree indexes.
 
-### Fase 3: Pembaruan Repository Layer (`@retail/database`) (Status: On Going)
+### Fase 3: Pembaruan Repository Layer (`@retail/database`) (Status: Done)
 
-- [ ] Buat `GasolineShiftRepository.ts` untuk mengelola lifecycle shift (`findActiveShift`, `openShift`, `closeShift`, `findAllShifts`, `updateLiveStock`).
-- [ ] Perbarui `SalaryPaymentRepository.ts` agar otomatis update `cash_out` dan `salary_expenses` di shift aktif jika dibayar via `CASH_DRAWER`.
-- [ ] Perbarui `GasolineShiftTransactionRepository.ts` agar wajib terikat ke `shift_id`.
-- [ ] Deprecate `GasolineActiveShiftRepository.ts`, `GasolineLiveStockRepository.ts`, dan `GasolineRecapRepository.ts`.
+- [x] Buat `GasolineShiftRepository.ts` untuk mengelola lifecycle shift (`findActiveShift`, `getLatestClosedShift`, `openShift`, `closeShift`, `recordPurchase`, `recordPour`, `findAllShifts`).
+- [x] Perbarui `SalaryPaymentRepository.ts` agar otomatis update `cash_out` dan `salary_expenses` di shift aktif jika dibayar via `CASH_DRAWER`.
+- [x] Export `GasolineShiftRepository` di `packages/database/src/index.ts`.
 
-### Fase 4: Integrasi Frontend (`apps/gasoline-web`) (Status: Todo)
+### Fase 4: Integrasi Frontend & API (`apps/gasoline-web`) (Status: On Going)
 
-- [ ] Perbarui Zustand `shiftSlice.ts` dan `catalogSlice.ts` membaca dari endpoint shift terpadu (`/api/shifts`).
-- [ ] Tambahkan opsi sumber dana pada form gaji di `salary/page.tsx`.
+- [ ] Buat API endpoints terpadu `/api/shift` (GET active, POST open/close, POST purchase/pour/expense).
+- [ ] Perbarui Zustand `shiftSlice.ts` dan `catalogSlice.ts` membaca dari endpoint shift terpadu.
+- [ ] Tambahkan opsi sumber dana (`payment_source`) pada form gaji di `salary/page.tsx`.
 - [ ] Tambahkan field snapshot sisa jerigen saat closing shift di `shift/page.tsx`.
 - [ ] Tampilkan informasi stok hari ini vs stok kemarin secara otomatis.
 
