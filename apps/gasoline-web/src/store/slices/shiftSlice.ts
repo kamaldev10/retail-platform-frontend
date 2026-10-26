@@ -33,6 +33,7 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			),
 			activeCashIn: uangAwal,
 			activeCashOut: 0,
+			shiftTransactions: [],
 		})
 		const updatedState = get()
 		fetch('/api/stock', {
@@ -152,7 +153,7 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 		return { success: true }
 	},
 
-	pourFuelToBottles: (bottleId, quantity, transactionDate) => {
+	pourFuelToBottles: async (bottleId, quantity, transactionDate) => {
 		const state = get()
 		const product = state.products.find(p => p.id === bottleId)
 		if (!product) return { success: false, message: 'Produk tidak valid' }
@@ -165,16 +166,45 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			}
 		}
 
-		const updatedPushed = { ...state.activePushedBottles }
+		const txDate = transactionDate || state.activeDate || new Date().toISOString().split('T')[0]
+
+		// Record on the server first so local stock only changes once the pour is persisted
+		let newTx
+		try {
+			const r = await fetch('/api/shift/transactions', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					shift_date: state.activeDate || txDate,
+					transaction_date: txDate,
+					type: 'pour',
+					product_id: bottleId,
+					liters: requiredLiters,
+					quantity,
+					cost: 0,
+				}),
+			})
+			if (!r.ok) {
+				const data = await r.json().catch(() => ({}))
+				return { success: false, message: data.error || 'Gagal menyimpan transaksi tuang' }
+			}
+			newTx = await r.json()
+		} catch (err) {
+			return { success: false, message: err instanceof Error ? err.message : 'Network error' }
+		}
+
+		const current = get()
+		const updatedPushed = { ...current.activePushedBottles }
 		updatedPushed[bottleId] = (updatedPushed[bottleId] || 0) + quantity
 
 		set({
-			jerigenStock: state.jerigenStock - requiredLiters,
+			jerigenStock: current.jerigenStock - requiredLiters,
 			bottleStock: {
-				...state.bottleStock,
-				[bottleId]: (state.bottleStock[bottleId] || 0) + quantity,
+				...current.bottleStock,
+				[bottleId]: (current.bottleStock[bottleId] || 0) + quantity,
 			},
 			activePushedBottles: updatedPushed,
+			shiftTransactions: [...current.shiftTransactions, newTx],
 		})
 
 		const updatedState = get()
@@ -198,29 +228,6 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 				pushed_bottles: updatedState.activePushedBottles,
 			}),
 		}).catch(() => {})
-
-		const txDate =
-			transactionDate || updatedState.activeDate || new Date().toISOString().split('T')[0]
-
-		fetch('/api/shift/transactions', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				shift_date: updatedState.activeDate || txDate,
-				transaction_date: txDate,
-				type: 'pour',
-				product_id: bottleId,
-				quantity,
-				cost: 0,
-			}),
-		})
-			.then(async r => {
-				if (r.ok) {
-					const newTx = await r.json()
-					set(s => ({ shiftTransactions: [...s.shiftTransactions, newTx] }))
-				}
-			})
-			.catch(() => {})
 
 		return { success: true }
 	},
@@ -295,6 +302,7 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 				dailyRecaps: [newRecap, ...filteredRecaps],
 				bottleStock: nextBottleStock,
 				jerigenStock: finalJerigen,
+				activeDate: '',
 				activeOpeningStock: null,
 				activePushedBottles: state.products.reduce(
 					(acc, p) => {
@@ -305,6 +313,7 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 				),
 				activeCashIn: 0,
 				activeCashOut: 0,
+				shiftTransactions: [],
 				syncStatus: 'idle',
 				syncMessage: '',
 			})
@@ -429,6 +438,7 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 						latestClosedShift: data.latest_closed_shift,
 						activeDate: '',
 						activeOpeningStock: null,
+						shiftTransactions: [],
 					})
 				} else {
 					set({

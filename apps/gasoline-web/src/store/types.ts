@@ -76,7 +76,7 @@ export interface ShiftSliceActions {
 		bottleId: string,
 		quantity: number,
 		transactionDate?: string,
-	) => { success: boolean; message?: string }
+	) => Promise<{ success: boolean; message?: string }>
 	submitClosingStock: (
 		closingStocks: Record<string, number>,
 		uangAkhir: number,

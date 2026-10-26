@@ -34,11 +34,27 @@ export async function POST(request: NextRequest) {
 			transaction_date: txDate,
 		}
 
+		const activeShift = await gasolineShiftRepository.findActiveShift()
+
+		// Pour must update jerigen stock on the shift before it is logged, so a failure is reported
+		if (activeShift && body.type === 'pour') {
+			try {
+				await gasolineShiftRepository.recordPour(activeShift.id, {
+					product_id: body.product_id,
+					bottles_count: Number(body.quantity || 0),
+					liters: Number(body.liters || 0),
+					note: body.note,
+				})
+			} catch (err) {
+				const message = err instanceof Error ? err.message : 'Gagal mencatat tuang bensin'
+				return NextResponse.json({ error: message }, { status: 400 })
+			}
+		}
+
 		// 1. Insert into legacy shift_transactions table
 		const tx = await gasolineShiftTransactionRepository.insert(payload)
 
-		// 2. Sync to unified gasoline.shifts, inventory logs & expenses
-		const activeShift = await gasolineShiftRepository.findActiveShift()
+		// 2. Sync purchases to unified gasoline.shifts, inventory logs & expenses
 		if (activeShift) {
 			if (body.type === 'purchase') {
 				await gasolineShiftRepository
@@ -48,15 +64,6 @@ export async function POST(request: NextRequest) {
 						quantity: Number(body.quantity || 0),
 						cost: Number(body.cost || 0),
 						payment_source: 'CASH_DRAWER',
-						note: body.note,
-					})
-					.catch(() => {})
-			} else if (body.type === 'pour') {
-				await gasolineShiftRepository
-					.recordPour(activeShift.id, {
-						product_id: body.product_id,
-						bottles_count: Number(body.quantity || 0),
-						liters: Number(body.liters || 0),
 						note: body.note,
 					})
 					.catch(() => {})

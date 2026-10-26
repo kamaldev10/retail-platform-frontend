@@ -345,10 +345,12 @@ export default function ShiftPage() {
 		}
 	}
 
-	const onSubmitPour = (data: PourFormData) => {
+	const onSubmitPour = async (data: PourFormData) => {
 		setPourError(null)
 		const txDate = data.transactionDate || activeDate || today
-		const res = pourFuelToBottles(data.bottleId, data.quantity, txDate)
+		setIsSubmitting(true)
+		const res = await pourFuelToBottles(data.bottleId, data.quantity, txDate)
+		setIsSubmitting(false)
 		if (!res.success) {
 			setPourError(res.message || 'Gagal menuangkan bensin')
 			toast.error(res.message || 'Gagal menuangkan bensin')
@@ -1068,8 +1070,18 @@ export default function ShiftPage() {
 								</div>
 							</div>
 
-							<Button type="submit" variant="orange" size="lg" className="w-full mt-2">
-								Proses Pengemasan Botol
+							<Button
+								type="submit"
+								variant="orange"
+								size="lg"
+								className="w-full mt-2"
+								disabled={isSubmitting}
+							>
+								{isSubmitting ? (
+									<Loader2 className="w-4 h-4 animate-spin" />
+								) : (
+									'Proses Pengemasan Botol'
+								)}
 							</Button>
 						</form>
 					</CardContent>
