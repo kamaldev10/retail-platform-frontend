@@ -281,10 +281,10 @@ export const gasolineRecapRepository = {
               shift_id, product_id, opening_qty, pushed_qty, current_qty, closing_qty, sold_qty,
               unit_selling_price, unit_cost_price, revenue, cogs, profit
             ) VALUES (
-              $1, $2, $3, 0.000, $4, $4, $5,
-              CASE WHEN $5 > 0 THEN ($6 / $5)::NUMERIC(15, 2) ELSE 0.00 END,
-              CASE WHEN $5 > 0 THEN ($7 / $5)::NUMERIC(15, 2) ELSE 0.00 END,
-              $6, $7, $8
+              $1, $2, $3, 0.000, $4, $4, $5::numeric,
+              CASE WHEN $5::numeric > 0 THEN ($6::numeric / $5::numeric)::NUMERIC(15, 2) ELSE 0.00 END,
+              CASE WHEN $5::numeric > 0 THEN ($7::numeric / $5::numeric)::NUMERIC(15, 2) ELSE 0.00 END,
+              $6::numeric, $7::numeric, $8
             ) ON CONFLICT (shift_id, product_id) DO UPDATE SET
               opening_qty = EXCLUDED.opening_qty,
               current_qty = EXCLUDED.current_qty,
