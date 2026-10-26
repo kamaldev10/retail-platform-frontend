@@ -209,7 +209,8 @@ export const gasolineRecapRepository = {
 				const openingJerigen =
 					recap.openingJerigen !== undefined ? Number(recap.openingJerigen) : null
 
-				await client.query(
+				// The shift for this date may already exist with its own id, so use the id the upsert returns
+				const shiftRes = await client.query(
 					`INSERT INTO gasoline.shifts (
             id, shift_date, shift_number, status, opening_cash, total_sales_revenue, total_cash_out,
             expected_closing_cash, actual_closing_cash, cash_variance, total_sold_liters,
@@ -234,7 +235,8 @@ export const gasolineRecapRepository = {
             variance_note = EXCLUDED.variance_note,
             status = 'CLOSED',
             closed_at = NOW(),
-            updated_at = NOW()`,
+            updated_at = NOW()
+          RETURNING id`,
 					[
 						recapId,
 						recap.date,
@@ -254,8 +256,10 @@ export const gasolineRecapRepository = {
 					],
 				)
 
+				const shiftId = shiftRes.rows[0]?.id
+
 				await client.query(`DELETE FROM gasoline.shift_product_items WHERE shift_id = $1`, [
-					recapId,
+					shiftId,
 				])
 				await client.query(`DELETE FROM gasoline.product_recaps WHERE recap_id = $1`, [recapId])
 
@@ -294,7 +298,7 @@ export const gasolineRecapRepository = {
               cogs = EXCLUDED.cogs,
               profit = EXCLUDED.profit`,
 						[
-							recapId,
+							shiftId,
 							item.productId,
 							item.openingStock,
 							item.closingStock,
@@ -310,9 +314,15 @@ export const gasolineRecapRepository = {
 					await client.query(
 						`INSERT INTO gasoline.finances (
               transaction_date, flow_type, category, amount, reference_type, reference_id, recap_id, shift_id, description
-            ) VALUES ($1::date, 'IN', 'INITIAL_CASH', $2, 'RECAP', $3, $3, $3, $4)
+            ) VALUES ($1::date, 'IN', 'INITIAL_CASH', $2, 'RECAP', $3, $3, $5, $4)
             ON CONFLICT DO NOTHING`,
-						[recap.date, initialCash, recapId, `Initial cash float for shift on ${recap.date}`],
+						[
+							recap.date,
+							initialCash,
+							recapId,
+							`Initial cash float for shift on ${recap.date}`,
+							shiftId,
+						],
 					)
 				}
 
@@ -320,9 +330,15 @@ export const gasolineRecapRepository = {
 					await client.query(
 						`INSERT INTO gasoline.finances (
               transaction_date, flow_type, category, amount, reference_type, reference_id, recap_id, shift_id, description
-            ) VALUES ($1::date, 'OUT', 'FUEL_PURCHASE', $2, 'RECAP', $3, $3, $3, $4)
+            ) VALUES ($1::date, 'OUT', 'FUEL_PURCHASE', $2, 'RECAP', $3, $3, $5, $4)
             ON CONFLICT DO NOTHING`,
-						[recap.date, fuelPurchase, recapId, `Bulk fuel purchase expense for ${recap.date}`],
+						[
+							recap.date,
+							fuelPurchase,
+							recapId,
+							`Bulk fuel purchase expense for ${recap.date}`,
+							shiftId,
+						],
 					)
 				}
 
@@ -330,13 +346,14 @@ export const gasolineRecapRepository = {
 					await client.query(
 						`INSERT INTO gasoline.finances (
               transaction_date, flow_type, category, amount, reference_type, reference_id, recap_id, shift_id, description
-            ) VALUES ($1::date, 'IN', 'SALES_REVENUE', $2, 'RECAP', $3, $3, $3, $4)
+            ) VALUES ($1::date, 'IN', 'SALES_REVENUE', $2, 'RECAP', $3, $3, $5, $4)
             ON CONFLICT DO NOTHING`,
 						[
 							recap.date,
 							recap.totalRevenue,
 							recapId,
 							`Sales revenue for shift recap on ${recap.date}`,
+							shiftId,
 						],
 					)
 				}
