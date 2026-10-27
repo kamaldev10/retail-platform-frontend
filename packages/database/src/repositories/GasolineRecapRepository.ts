@@ -217,7 +217,7 @@ export const gasolineRecapRepository = {
             total_cogs, total_net_profit, fuel_purchase_cost, opening_jerigen, closing_jerigen, current_jerigen,
             variance_note, closed_at, updated_at
           ) VALUES (
-            $1, $2::date, 1, 'CLOSED', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, 0), COALESCE($14, 0), COALESCE($14, 0), $15, NOW(), NOW()
+            $1, $2::date, 1, 'CLOSED', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13::numeric, 0), COALESCE($14::numeric, 0), COALESCE($14::numeric, 0), $15, NOW(), NOW()
           ) ON CONFLICT (shift_date, shift_number) DO UPDATE SET
             total_sales_revenue = EXCLUDED.total_sales_revenue,
             total_cogs = EXCLUDED.total_cogs,
@@ -229,9 +229,9 @@ export const gasolineRecapRepository = {
             cash_variance = EXCLUDED.cash_variance,
             fuel_purchase_cost = EXCLUDED.fuel_purchase_cost,
             total_cash_out = EXCLUDED.total_cash_out,
-            opening_jerigen = COALESCE($13, gasoline.shifts.opening_jerigen, 0),
-            closing_jerigen = COALESCE($14, gasoline.shifts.closing_jerigen, 0),
-            current_jerigen = COALESCE($14, gasoline.shifts.current_jerigen, 0),
+            opening_jerigen = COALESCE($13::numeric, gasoline.shifts.opening_jerigen, 0),
+            closing_jerigen = COALESCE($14::numeric, gasoline.shifts.closing_jerigen, 0),
+            current_jerigen = COALESCE($14::numeric, gasoline.shifts.current_jerigen, 0),
             variance_note = EXCLUDED.variance_note,
             status = 'CLOSED',
             closed_at = NOW(),
