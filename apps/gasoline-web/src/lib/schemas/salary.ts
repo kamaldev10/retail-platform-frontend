@@ -9,6 +9,9 @@ export const salaryPaymentSchema = z.object({
 		.transform(val => parseRupiah(val))
 		.refine(val => val > 0, { message: 'Nominal gaji harus lebih besar dari 0' }),
 	recipient: z.string().optional(),
+	paymentSource: z
+		.enum(['CASH_DRAWER', 'EXTERNAL_TRANSFER', 'OWNER_POCKET'])
+		.default('CASH_DRAWER'),
 	note: z.string().optional(),
 })
 
