@@ -2,7 +2,7 @@
 
 - Document ID: PLAN-DB-OPT-001
 - Created At: 2026-10-25
-- Last Updated: 2026-10-25
+- Last Updated: 2026-10-27
 - Status: On Going
 - Target Scope: `packages/database`, `apps/gasoline-web`
 
@@ -213,7 +213,135 @@ CREATE INDEX IF NOT EXISTS idx_gasoline_finances_shift_id ON gasoline.finances(s
 
 ---
 
-## 4. Rencana Tahapan Eksekusi (Roadmap)
+## 4. Optimasi Performa Query (Round-trip & Index)
+
+Tambahan 2026-10-27: audit performa query setelah rearsitektur shift selesai.
+
+### A. Ringkasan Temuan
+
+Query SQL di sistem gasoline sudah ringan secara individual:
+
+- Pencarian memakai primary key, unique constraint, atau index.
+- Data list sudah dipaginasi (`LIMIT` maksimal 100).
+- Item produk per shift diambil sekaligus dengan `WHERE shift_id = ANY($1::uuid[])`, bukan N+1.
+
+Penyebab utama sistem terasa berat adalah **jumlah round-trip ke database per request**, dengan biaya jaringan tinggi per round-trip.
+
+**Bukti dari log development:**
+
+| Observasi                                                             | Nilai   |
+| --------------------------------------------------------------------- | ------- |
+| Lookup `common.users` by email (unique index, 1 baris)                | 102 ms  |
+| `POST /api/recap/sync` (sekitar 15 query berurutan dalam 1 transaksi) | 1843 ms |
+
+Waktu 102 ms untuk query sesederhana itu hampir seluruhnya latensi jaringan, bukan waktu eksekusi Postgres.
+
+---
+
+### B. Prioritas Optimasi
+
+#### P1. Batch Insert pada `syncBatch` (Dampak Terbesar)
+
+- **Lokasi**: `packages/database/src/repositories/GasolineRecapRepository.ts` → `syncBatch`
+- **Masalah**: Di dalam loop `for (const item of recap.items)` ada 2 `INSERT` per produk (`product_recaps` dan `shift_product_items`). Ditambah upsert recap, upsert shift, 2 `DELETE`, dan sampai 3 insert `finances`. Dengan 3 produk totalnya sekitar 15 round-trip. Jumlahnya bertambah linear setiap ada produk baru.
+- **Solusi**:
+  - Ganti insert per produk dengan satu query memakai `unnest`:
+
+    ```sql
+    INSERT INTO gasoline.product_recaps (
+      recap_id, product_id, opening_stock, closing_stock, sold_qty, revenue, capital, profit
+    )
+    SELECT $1, * FROM unnest(
+      $2::text[], $3::numeric[], $4::numeric[], $5::numeric[],
+      $6::numeric[], $7::numeric[], $8::numeric[]
+    )
+    ```
+
+  - Terapkan pola yang sama untuk `shift_product_items` (termasuk `ON CONFLICT (shift_id, product_id) DO UPDATE`).
+  - Gabungkan 3 insert `finances` (`INITIAL_CASH`, `FUEL_PURCHASE`, `SALES_REVENUE`) menjadi satu `INSERT ... VALUES (...), (...), (...)`, dengan baris yang dibangun hanya untuk nilai > 0.
+
+- **Target**: dari ~15 menjadi ~7 query per recap, konstan terhadap jumlah produk.
+- **Catatan**: Pertahankan cast eksplisit `::numeric` pada semua parameter. Lihat insiden error `42P08` dan `invalid input syntax for type integer`.
+
+#### P2. Kurangi Query Berlebih per Request
+
+- **Masalah**:
+  - Satu aksi UI (contoh: tuang bensin) mengirim 3 request: `/api/stock`, `POST /api/shift/active`, dan `POST /api/shift/transactions`.
+  - Setiap request menjalankan `checkAdminAccess`: HTTP call ke Supabase Auth (`getUser`) lalu query `common.users`.
+  - `findActiveShift()` menjalankan **3 query berurutan** (shift, items, expenses). Padahal `POST /api/shift/active` dan `POST /api/shift/transactions` hanya butuh id shift aktif.
+- **Solusi**:
+  - [ ] Tambahkan `findActiveShiftId()` di `GasolineShiftRepository.ts`:
+
+    ```sql
+    SELECT id FROM gasoline.shifts WHERE status = 'OPEN' ORDER BY opened_at DESC LIMIT 1
+    ```
+
+    Pakai di `app/api/shift/active/route.ts` (POST) dan `app/api/shift/transactions/route.ts` (POST, DELETE).
+
+  - [ ] Di `findActiveShift()`, jalankan query items dan expenses secara paralel dengan `Promise.all` setelah id shift didapat. Pool serverless `max: 3`, jadi paralelisme 2 masih aman.
+  - [ ] (Jangka panjang) Konsolidasikan 3 request klien per aksi menjadi 1 endpoint. `recordPour` dan `recordPurchase` sudah memperbarui stok di server, jadi `POST /api/stock` dari klien merupakan duplikasi.
+
+- **Target**: aksi tuang/belanja dari 3 request (masing-masing sekitar 5 sampai 6 round-trip) menjadi 1 request dengan sekitar 4 round-trip.
+
+#### P3. Validasi Region Vercel Function vs Database
+
+- **Masalah**: Database berada di Supabase **Tokyo** (`aws-0-ap-northeast-1`). Repo tidak punya `vercel.json` maupun `preferredRegion`. Kalau tidak diatur, Vercel biasanya menjalankan function di `iad1` (Washington DC), sehingga setiap round-trip menyeberangi Pasifik (sekitar 150 ms).
+- **Solusi**:
+  - [ ] Cek Vercel Dashboard → Project → Settings → Functions → Region, untuk project production dan staging.
+  - [ ] Kalau belum sesuai, set ke Tokyo (`hnd1`), lewat dashboard atau `vercel.json`:
+
+    ```json
+    { "regions": ["hnd1"] }
+    ```
+
+- **Catatan**: Ini kemungkinan perbaikan termurah dengan dampak terbesar, karena latensi per round-trip dikalikan semua query di P1 dan P2.
+
+#### P4. Index Komposit (Dampak Kecil untuk Volume Data Saat Ini)
+
+Dengan volume data kecil (1 shift per hari), sequential scan tetap cepat. Index berikut disiapkan supaya performa tetap stabil saat data bertambah:
+
+```sql
+-- List recap/shift yang sudah tutup (findAllRecaps, findAllShifts, getLatestClosedShift)
+CREATE INDEX IF NOT EXISTS idx_gasoline_shifts_closed_list
+  ON gasoline.shifts (shift_date DESC, shift_number DESC) WHERE status = 'CLOSED';
+
+-- Pencarian shift aktif (findActiveShift)
+CREATE INDEX IF NOT EXISTS idx_gasoline_shifts_open
+  ON gasoline.shifts (opened_at DESC) WHERE status = 'OPEN';
+
+-- List finances sesuai ORDER BY (findAllFinances)
+CREATE INDEX IF NOT EXISTS idx_gasoline_finances_date_created
+  ON gasoline.finances (transaction_date DESC, created_at DESC);
+
+-- List gaji sesuai ORDER BY (findAllSalaries)
+CREATE INDEX IF NOT EXISTS idx_gasoline_salary_date_created
+  ON gasoline.salary_payments (date DESC, created_at DESC);
+```
+
+- **Catatan**: Index tunggal pada kolom low-cardinality (`shifts(status)`, `finances(flow_type)`, `finances(category)`) jarang dipakai planner. Index tersebut tetap dipertahankan sesuai aturan wajib index di `AGENTS.md`. Evaluasi ulang setelah ada data `pg_stat_user_indexes`.
+
+#### P5. Keamanan: Kredensial Database Hardcoded
+
+- **Lokasi**: `packages/database/src/connection.ts` → `DEFAULT_STAGING_URL`
+- **Masalah**: Connection string staging lengkap dengan password ditulis sebagai fallback di source code dan sudah masuk riwayat git.
+- **Solusi**:
+  - [ ] Rotasi password database staging di Supabase.
+  - [x] Hapus `DEFAULT_STAGING_URL`. Wajibkan `DATABASE_URL` / `STAGING_DATABASE_URL` dari environment variable, dan lempar error yang jelas kalau tidak ada.
+
+---
+
+### C. Cara Pengukuran & Validasi
+
+1. **Baseline sebelum perubahan** (dev server lokal ke DB staging, `npm run start:gasoline`):
+   - Catat jumlah dan total durasi log `Executed query` (dari `connection.ts`) untuk aksi: buka shift, tuang bensin, belanja, tutup shift (sync recap).
+2. **Analisis di database**:
+   - Supabase Dashboard → Database → Query Performance (`pg_stat_statements`) untuk query dengan total waktu tertinggi.
+   - Jalankan `EXPLAIN (ANALYZE, BUFFERS)` untuk query list (`findAllRecaps`, `findAllFinances`) sebelum dan sesudah index P4.
+3. **Setelah perubahan**: ulangi pengukuran langkah 1 di atas dan bandingkan jumlah query serta durasi end-to-end request.
+
+---
+
+## 5. Rencana Tahapan Eksekusi (Roadmap)
 
 ### Fase 1: Perancangan Arsitektur & Knowledge Base (Status: Done)
 
@@ -258,3 +386,34 @@ CREATE INDEX IF NOT EXISTS idx_gasoline_finances_shift_id ON gasoline.finances(s
   - `gasoline.product_recaps`
   - `gasoline.recaps`
   - `gasoline.shift_transactions`
+
+### Fase 7: Baseline & Validasi Region (Status: Planned)
+
+- [ ] Ukur baseline jumlah dan durasi query per aksi (bagian 4.C, langkah 1).
+- [ ] Cek dan sesuaikan region Vercel Function (P3).
+
+### Fase 8: Optimasi Repository Layer (Status: Planned)
+
+- [ ] Batch insert `product_recaps`, `shift_product_items`, dan `finances` di `syncBatch` (P1).
+- [ ] Tambahkan `findActiveShiftId()` dan paralelkan query di `findActiveShift()` (P2).
+- [ ] Jalankan `npx tsc --noEmit` dan `npx prettier --write` pada file yang diubah.
+
+### Fase 9: Index Komposit (Status: Planned)
+
+- [ ] Buat migration file baru di `packages/database/migrations/` untuk index P4.
+- [ ] Jalankan di staging, validasi dengan `EXPLAIN ANALYZE`.
+
+### Fase 10: Konsolidasi Request Klien (Status: Backlog)
+
+- [ ] Rancang endpoint tunggal per aksi shift (tuang, belanja) dan hapus `POST /api/stock` duplikat dari `shiftSlice.ts` (P2, jangka panjang).
+
+### Fase 11: Keamanan Kredensial (Status: On Going)
+
+- [x] Hapus fallback hardcoded `DEFAULT_STAGING_URL` di `connection.ts`. Fallback lokal ke staging hanya aktif jika `STAGING_DATABASE_URL` di-set (P5).
+- [ ] Pastikan `DATABASE_URL` sudah di-set di environment Vercel production dan staging sebelum deploy.
+- [ ] Rotasi password database staging di Supabase, lalu perbarui `STAGING_DATABASE_URL` di `.env`, `.env.staging`, dan Vercel (P5).
+
+### Fase 12: Validasi & Rilis (Status: Planned)
+
+- [ ] Bandingkan hasil pengukuran sebelum dan sesudah.
+- [ ] PR ke `staging` untuk UAT, lalu PR `staging` ke `main`.

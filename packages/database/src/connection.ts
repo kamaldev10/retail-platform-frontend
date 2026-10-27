@@ -5,13 +5,13 @@ declare global {
 	var pgPool: Pool | undefined
 }
 
-const DEFAULT_STAGING_URL =
-	'postgresql://postgres.rmsotbhqyadezzkcjwya:097MLe6Y1fWZ721C@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true'
-
 function getInitialConnectionString(): string {
-	const rawUrl = process.env.DATABASE_URL || process.env.LOCAL_DATABASE_URL
+	const rawUrl =
+		process.env.DATABASE_URL || process.env.LOCAL_DATABASE_URL || process.env.STAGING_DATABASE_URL
 	if (rawUrl) return rawUrl
-	return process.env.STAGING_DATABASE_URL || DEFAULT_STAGING_URL
+	throw new Error(
+		'Database connection string is not configured. Set DATABASE_URL, LOCAL_DATABASE_URL, or STAGING_DATABASE_URL.',
+	)
 }
 
 let currentConnectionString = getInitialConnectionString()
@@ -61,10 +61,11 @@ export async function query<T extends QueryResultRow = any>(
 	} catch (error: any) {
 		const isLocalhost =
 			currentConnectionString.includes('localhost') || currentConnectionString.includes('127.0.0.1')
-		const stagingUrl = process.env.STAGING_DATABASE_URL || DEFAULT_STAGING_URL
+		const stagingUrl = process.env.STAGING_DATABASE_URL
 
 		if (
 			isLocalhost &&
+			stagingUrl &&
 			(error?.code === 'ECONNREFUSED' || error?.message?.includes('connect ECONNREFUSED'))
 		) {
 			console.warn(
@@ -93,10 +94,11 @@ export async function transaction<T>(callback: (client: PoolClient) => Promise<T
 	} catch (error: any) {
 		const isLocalhost =
 			currentConnectionString.includes('localhost') || currentConnectionString.includes('127.0.0.1')
-		const stagingUrl = process.env.STAGING_DATABASE_URL || DEFAULT_STAGING_URL
+		const stagingUrl = process.env.STAGING_DATABASE_URL
 
 		if (
 			isLocalhost &&
+			stagingUrl &&
 			(error?.code === 'ECONNREFUSED' || error?.message?.includes('connect ECONNREFUSED'))
 		) {
 			console.warn(
