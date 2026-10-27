@@ -15,12 +15,15 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 	activeCashIn: 0,
 	activeCashOut: 0,
 	shiftTransactions: [],
+	latestClosedShift: null,
 
-	setOpeningStock: async (date, stocks, uangAwal) => {
+	setOpeningStock: async (date, stocks, uangAwal, openingJerigen) => {
+		const targetJerigen = openingJerigen !== undefined ? openingJerigen : get().jerigenStock
 		set({
 			activeDate: date,
 			activeOpeningStock: stocks,
 			bottleStock: { ...stocks },
+			jerigenStock: targetJerigen,
 			activePushedBottles: Object.keys(stocks).reduce(
 				(acc, key) => {
 					acc[key] = 0
@@ -30,6 +33,7 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			),
 			activeCashIn: uangAwal,
 			activeCashOut: 0,
+			shiftTransactions: [],
 		})
 		const updatedState = get()
 		fetch('/api/stock', {
@@ -48,6 +52,7 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 				cash_in: uangAwal,
 				cash_out: 0,
 				opening_stocks: stocks,
+				opening_jerigen: targetJerigen,
 				pushed_bottles: Object.keys(stocks).reduce(
 					(acc, key) => {
 						acc[key] = 0
@@ -121,12 +126,15 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			}),
 		}).catch(() => {})
 
+		const txDate =
+			transactionDate || updatedState.activeDate || new Date().toISOString().split('T')[0]
+
 		fetch('/api/shift/transactions', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				shift_date: updatedState.activeDate,
-				transaction_date: transactionDate || new Date().toISOString().split('T')[0],
+				shift_date: updatedState.activeDate || txDate,
+				transaction_date: txDate,
 				type: 'purchase',
 				product_id: target === 'jerigen' ? null : target,
 				liters: calculatedLiters,
@@ -145,7 +153,7 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 		return { success: true }
 	},
 
-	pourFuelToBottles: (bottleId, quantity, transactionDate) => {
+	pourFuelToBottles: async (bottleId, quantity, transactionDate) => {
 		const state = get()
 		const product = state.products.find(p => p.id === bottleId)
 		if (!product) return { success: false, message: 'Produk tidak valid' }
@@ -158,16 +166,45 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			}
 		}
 
-		const updatedPushed = { ...state.activePushedBottles }
+		const txDate = transactionDate || state.activeDate || new Date().toISOString().split('T')[0]
+
+		// Record on the server first so local stock only changes once the pour is persisted
+		let newTx
+		try {
+			const r = await fetch('/api/shift/transactions', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					shift_date: state.activeDate || txDate,
+					transaction_date: txDate,
+					type: 'pour',
+					product_id: bottleId,
+					liters: requiredLiters,
+					quantity,
+					cost: 0,
+				}),
+			})
+			if (!r.ok) {
+				const data = await r.json().catch(() => ({}))
+				return { success: false, message: data.error || 'Gagal menyimpan transaksi tuang' }
+			}
+			newTx = await r.json()
+		} catch (err) {
+			return { success: false, message: err instanceof Error ? err.message : 'Network error' }
+		}
+
+		const current = get()
+		const updatedPushed = { ...current.activePushedBottles }
 		updatedPushed[bottleId] = (updatedPushed[bottleId] || 0) + quantity
 
 		set({
-			jerigenStock: state.jerigenStock - requiredLiters,
+			jerigenStock: current.jerigenStock - requiredLiters,
 			bottleStock: {
-				...state.bottleStock,
-				[bottleId]: (state.bottleStock[bottleId] || 0) + quantity,
+				...current.bottleStock,
+				[bottleId]: (current.bottleStock[bottleId] || 0) + quantity,
 			},
 			activePushedBottles: updatedPushed,
+			shiftTransactions: [...current.shiftTransactions, newTx],
 		})
 
 		const updatedState = get()
@@ -192,32 +229,14 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			}),
 		}).catch(() => {})
 
-		fetch('/api/shift/transactions', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				shift_date: updatedState.activeDate,
-				transaction_date: transactionDate || new Date().toISOString().split('T')[0],
-				type: 'pour',
-				product_id: bottleId,
-				quantity,
-				cost: 0,
-			}),
-		})
-			.then(async r => {
-				if (r.ok) {
-					const newTx = await r.json()
-					set(s => ({ shiftTransactions: [...s.shiftTransactions, newTx] }))
-				}
-			})
-			.catch(() => {})
-
 		return { success: true }
 	},
 
-	submitClosingStock: async (closingStocks, uangAkhir, note) => {
+	submitClosingStock: async (closingStocks, uangAkhir, note, closingJerigen) => {
 		const state = get()
 		if (!state.activeOpeningStock) return { success: false, message: 'Shift belum dibuka' }
+
+		const finalJerigen = closingJerigen !== undefined ? closingJerigen : state.jerigenStock
 
 		const recapInputs: DailyRecapInput[] = state.products.map(p => {
 			const opening = state.activeOpeningStock![p.id] || 0
@@ -244,6 +263,7 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			),
 			uangAwal: state.activeCashIn,
 			belanja: state.activeCashOut,
+			closingJerigen: finalJerigen,
 			note: note || '',
 		}
 
@@ -281,6 +301,8 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			set({
 				dailyRecaps: [newRecap, ...filteredRecaps],
 				bottleStock: nextBottleStock,
+				jerigenStock: finalJerigen,
+				activeDate: '',
 				activeOpeningStock: null,
 				activePushedBottles: state.products.reduce(
 					(acc, p) => {
@@ -291,6 +313,7 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 				),
 				activeCashIn: 0,
 				activeCashOut: 0,
+				shiftTransactions: [],
 				syncStatus: 'idle',
 				syncMessage: '',
 			})
@@ -407,12 +430,33 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			if (!response.ok) return { success: false, message: `Error ${response.status}` }
 			const data = await response.json()
 			if (!data) return { success: true } // no active shift
+
+			if (data.latest_closed_shift) {
+				const hasCurrentActive = Boolean(get().activeOpeningStock)
+				if (!hasCurrentActive) {
+					set({
+						latestClosedShift: data.latest_closed_shift,
+						activeDate: '',
+						activeOpeningStock: null,
+						shiftTransactions: [],
+					})
+				} else {
+					set({
+						latestClosedShift: data.latest_closed_shift,
+					})
+				}
+				return { success: true }
+			}
+
 			set({
+				latestClosedShift: null,
 				activeDate: data.active_date,
 				activeOpeningStock: data.opening_stocks,
 				activePushedBottles: data.pushed_bottles,
 				activeCashIn: data.cash_in,
 				activeCashOut: data.cash_out,
+				jerigenStock:
+					data.current_jerigen !== undefined ? data.current_jerigen : get().jerigenStock,
 			})
 			if (data.active_date) {
 				await get().fetchShiftTransactions(data.active_date)
@@ -441,6 +485,42 @@ export const createShiftSlice: StateCreator<GasolineStore, [], [], ShiftSlice> =
 			if (!r.ok) return { success: false, message: `Error ${r.status}` }
 			const txs = await r.json()
 			set({ shiftTransactions: txs })
+			return { success: true }
+		} catch (err) {
+			return { success: false, message: err instanceof Error ? err.message : 'Network error' }
+		}
+	},
+
+	voidShiftTransaction: async (transactionId: string) => {
+		try {
+			const res = await fetch(`/api/shift/transactions?id=${encodeURIComponent(transactionId)}`, {
+				method: 'DELETE',
+			})
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}))
+				return { success: false, message: data.error || 'Gagal membatalkan transaksi' }
+			}
+			await get().fetchActiveShift()
+			await get().fetchStockFromCloud()
+			return { success: true }
+		} catch (err) {
+			return { success: false, message: err instanceof Error ? err.message : 'Network error' }
+		}
+	},
+
+	adjustJerigenStockWithReason: async (actualLiters: number, reason: string) => {
+		try {
+			const res = await fetch('/api/shift/adjustment', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ actualLiters, reason }),
+			})
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}))
+				return { success: false, message: data.error || 'Gagal menyesuaikan stok jerigen' }
+			}
+			set({ jerigenStock: actualLiters })
+			await get().fetchActiveShift()
 			return { success: true }
 		} catch (err) {
 			return { success: false, message: err instanceof Error ? err.message : 'Network error' }

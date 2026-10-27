@@ -21,6 +21,8 @@ export interface SalaryPaymentItem {
 	weekLabel?: string
 	amount: number
 	recipient?: string
+	paymentSource?: 'CASH_DRAWER' | 'EXTERNAL_TRANSFER' | 'OWNER_POCKET'
+	shiftId?: string
 	note?: string
 	createdAt?: string
 }
@@ -50,10 +52,20 @@ export interface ShiftSliceState {
 	activeCashIn: number
 	activeCashOut: number
 	shiftTransactions: ShiftTransactionItem[]
+	latestClosedShift: {
+		shift_date: string
+		closing_jerigen: number
+		closing_bottles: Record<string, number>
+	} | null
 }
 
 export interface ShiftSliceActions {
-	setOpeningStock: (date: string, stocks: Record<string, number>, uangAwal: number) => Promise<void>
+	setOpeningStock: (
+		date: string,
+		stocks: Record<string, number>,
+		uangAwal: number,
+		openingJerigen?: number,
+	) => Promise<void>
 	submitPurchase: (
 		liters: number,
 		cost: number,
@@ -64,11 +76,12 @@ export interface ShiftSliceActions {
 		bottleId: string,
 		quantity: number,
 		transactionDate?: string,
-	) => { success: boolean; message?: string }
+	) => Promise<{ success: boolean; message?: string }>
 	submitClosingStock: (
 		closingStocks: Record<string, number>,
 		uangAkhir: number,
 		note?: string,
+		closingJerigen?: number,
 	) => Promise<{ success: boolean; message?: string }>
 	submitDailyReport: (
 		date: string,
@@ -82,6 +95,11 @@ export interface ShiftSliceActions {
 	fetchActiveShift: () => Promise<{ success: boolean; message?: string }>
 	clearActiveShift: () => Promise<void>
 	fetchShiftTransactions: (shiftDate: string) => Promise<{ success: boolean; message?: string }>
+	voidShiftTransaction: (transactionId: string) => Promise<{ success: boolean; message?: string }>
+	adjustJerigenStockWithReason: (
+		actualLiters: number,
+		reason: string,
+	) => Promise<{ success: boolean; message?: string }>
 }
 
 export interface RecapSliceState {
@@ -118,6 +136,7 @@ export interface SalarySliceActions {
 		weekLabel?: string
 		amount: number
 		recipient?: string
+		paymentSource?: 'CASH_DRAWER' | 'EXTERNAL_TRANSFER' | 'OWNER_POCKET'
 		note?: string
 	}) => Promise<{ success: boolean; message?: string }>
 	fetchSalaryFromCloud: (

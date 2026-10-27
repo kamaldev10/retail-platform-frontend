@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 		}
 
 		const body = await request.json()
-		const { date, weekLabel, amount, recipient, note } = body
+		const { date, weekLabel, amount, recipient, paymentSource, note } = body
 
 		if (!date || !amount || amount <= 0) {
 			return NextResponse.json(
@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
 			weekLabel: weekLabel || undefined,
 			amount: Number(amount),
 			recipient: recipient || undefined,
+			paymentSource: paymentSource || 'CASH_DRAWER',
 			note: note || undefined,
 		})
 

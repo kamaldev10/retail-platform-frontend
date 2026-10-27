@@ -37,6 +37,12 @@ export const createSalarySlice: StateCreator<GasolineStore, [], [], SalarySlice>
 				syncMessage: '',
 			}))
 
+			if (!salaryData.paymentSource || salaryData.paymentSource === 'CASH_DRAWER') {
+				get()
+					.fetchActiveShift()
+					.catch(() => {})
+			}
+
 			get().fetchSalaryFromCloud(get().salaryPagination.page, get().salaryPagination.limit)
 
 			return { success: true }
